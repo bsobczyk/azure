@@ -1,0 +1,46 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  SERVER_LIST: 'server1,server2,server3'  # Lista serwerów
+  KEY_VAULT_NAME: 'Your-KeyVault-Name'    # Nazwa Twojego Key Vault
+  PFX_PASSWORD: 'Your-PFX-Password'       # Hasło do plików PFX
+
+steps:
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'Your-Service-connection-name'  # Połączenie z Azure
+    KeyVaultName: $(KEY_VAULT_NAME)                   # Nazwa Key Vault
+    SecretsFilter: '*'                                # Pobierz wszystkie wpisy tajne
+    RunAsPreJob: true                                 # Uruchom przed innymi zadaniami
+
+- bash: |
+    # Podziel listę serwerów na tablicę
+    IFS=',' read -r -a servers <<< "$(SERVER_LIST)"
+
+    # Iteruj po każdej nazwie serwera
+    for server in "${servers[@]}"; do
+        # Pobierz certyfikat z Key Vault (nazwa certyfikatu = nazwa serwera)
+        certificateName=$server
+        certificateSecret=${!certificateName}  # Odwołanie do zmiennej pipeline'a
+
+        # Zapisz certyfikat jako plik PFX
+        pfxFilePath="$(Build.ArtifactStagingDirectory)/$certificateName.pfx"
+
+        # Konwertuj certyfikat z Base64 do formatu PFX
+        echo "$certificateSecret" | base64 --decode > "$pfxFilePath"
+
+        # Opcjonalnie: zabezpiecz plik PFX hasłem za pomocą OpenSSL
+        openssl pkcs12 -in "$pfxFilePath" -out "$pfxFilePath.encrypted" -password pass:$(PFX_PASSWORD)
+        mv "$pfxFilePath.encrypted" "$pfxFilePath"
+    done
+  displayName: "Zapisz certyfikaty jako pliki PFX (Bash)"
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'Certificates'
+    publishLocation: 'Container'
