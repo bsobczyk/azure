@@ -1,0 +1,44 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  SERVER_LIST: 'server1,server2,server3'  # Lista serwerów
+  KEY_VAULT_NAME: 'Your-KeyVault-Name'    # Nazwa Twojego Key Vault
+  PFX_PASSWORD: 'Your-PFX-Password'       # Hasło do plików PFX
+
+steps:
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'Your-Service-connection-name'  # Połączenie z Azure
+    KeyVaultName: $(KEY_VAULT_NAME)                   # Nazwa Key Vault
+    SecretsFilter: '*'                                # Pobierz wszystkie wpisy tajne
+    RunAsPreJob: true                                 # Uruchom przed innymi zadaniami
+
+- powershell: |
+    # Podziel listę serwerów na tablicę
+    $servers = "$(SERVER_LIST)".Split(',')
+
+    # Iteruj po każdej nazwie serwera
+    foreach ($server in $servers) {
+        # Pobierz certyfikat z Key Vault (nazwa certyfikatu = nazwa serwera)
+        $certificateName = $server
+        $certificateSecret = Get-VstsTaskVariable -Name $certificateName
+
+        # Zapisz certyfikat jako plik PFX
+        $pfxFilePath = "$(Build.ArtifactStagingDirectory)\$certificateName.pfx"
+        [System.IO.File]::WriteAllBytes($pfxFilePath, [System.Convert]::FromBase64String($certificateSecret))
+
+        # Opcjonalnie: zabezpiecz plik PFX hasłem
+        $securePassword = ConvertTo-SecureString -String "$(PFX_PASSWORD)" -Force -AsPlainText
+        Export-PfxCertificate -FilePath $pfxFilePath -Password $securePassword -Cert $pfxFilePath -Force
+    }
+  displayName: "Zapisz certyfikaty jako pliki PFX"
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'Certificates'
+    publishLocation: 'Container'
