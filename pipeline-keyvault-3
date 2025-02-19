@@ -1,0 +1,14 @@
+- bash: |
+    IFS=',' read -r -a servers <<< "$(SERVER_LIST)"
+    for server in "${servers[@]}"; do
+        certificateName=$server
+        certificateSecret=$(eval echo "\$$certificateName")  # Odwołanie do zmiennej środowiskowej
+        pfxFilePath="$(Build.ArtifactStagingDirectory)/$certificateName.pfx"
+        echo "$certificateSecret" | base64 --decode > "$pfxFilePath"
+        openssl pkcs12 -in "$pfxFilePath" -out "$pfxFilePath.encrypted" -password pass:$(PFX_PASSWORD)
+        mv "$pfxFilePath.encrypted" "$pfxFilePath"
+    done
+  env:
+    server1: $(server1)  # Przekazanie certyfikatów jako zmienne środowiskowe
+    server2: $(server2)
+    server3: $(server3)
